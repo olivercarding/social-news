@@ -115,29 +115,42 @@ export default async function handler(req, res) {
 
     console.log(`Attempting to insert ${uniqueNewsToInsert.length} new posts`);
 
-    // --- 3. Upsert into Supabase with ON CONFLICT handling ---
-    // Using upsert with onConflict to gracefully handle any race conditions
-    const { data: insertedData, error: insertError } = await supabase
-      .from('trending_news')
-      .upsert(uniqueNewsToInsert, { 
-        onConflict: 'cp_id',
-        ignoreDuplicates: true // Skip duplicates instead of throwing error
-      })
-      .select(); 
+    // --- 3. Insert into Supabase one-by-one to handle any race condition duplicates gracefully ---
+    let successCount = 0;
+    let duplicateCount = 0;
 
-    if (insertError) {
-      console.error('Supabase insert error:', insertError);
-      throw insertError;
+    for (const newsItem of uniqueNewsToInsert) {
+      try {
+        const { data, error } = await supabase
+          .from('trending_news')
+          .insert(newsItem)
+          .select();
+
+        if (error) {
+          // Check if it's a duplicate key error
+          if (error.code === '23505' || error.message.includes('duplicate key')) {
+            console.log(`Duplicate detected for cp_id ${newsItem.cp_id}, skipping`);
+            duplicateCount++;
+          } else {
+            // Other error - log but continue
+            console.error(`Error inserting cp_id ${newsItem.cp_id}:`, error.message);
+          }
+        } else {
+          console.log(`Successfully inserted cp_id ${newsItem.cp_id} - webhook should fire`);
+          successCount++;
+        }
+      } catch (err) {
+        console.error(`Exception inserting cp_id ${newsItem.cp_id}:`, err.message);
+      }
     }
 
-    const actualInsertCount = insertedData ? insertedData.length : 0;
-    console.log(`Successfully inserted ${actualInsertCount} posts`);
+    console.log(`Insert complete: ${successCount} successful, ${duplicateCount} duplicates`);
 
     return res.status(200).json({ 
       message: 'News collector ran successfully.', 
-      inserted_count: actualInsertCount,
+      inserted_count: successCount,
       total_fetched: posts.length,
-      skipped_duplicates: uniqueNewsToInsert.length - actualInsertCount
+      skipped_duplicates: duplicateCount
     });
 
   } catch (error) {
