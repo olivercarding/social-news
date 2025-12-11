@@ -16,48 +16,18 @@ export default async function handler(req, res) {
 
   try {
     // --- 1. Fetch Trending News from CryptoPanic ---
-    const apiUrl = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTOPANIC_API_KEY}&kind=news&filter=hot&public=true`;
+    // IMPORTANT: Using API v2, not v1
+    const apiUrl = `https://cryptopanic.com/api/developer/v2/posts/?auth_token=${CRYPTOPANIC_API_KEY}&kind=news&filter=hot&public=true`;
     
-    console.log('Fetching from CryptoPanic...');
+    console.log('Fetching from CryptoPanic v2 API...');
     
-    let response;
-    try {
-      response = await axios.get(apiUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; Vercel-Function/1.0)',
-        },
-        timeout: 15000, // 15 second timeout
-        validateStatus: function (status) {
-          // Accept any status code so we can handle it ourselves
-          return status < 500;
-        }
-      });
-    } catch (axiosError) {
-      console.error('Axios request failed:', axiosError.message);
-      throw axiosError;
-    }
-
-    // Handle rate limiting specifically
-    if (response.status === 429) {
-      console.error('CryptoPanic rate limit hit (429)');
-      const retryAfter = response.headers['retry-after'] || 60;
-      return res.status(429).json({ 
-        error: 'Rate limit exceeded',
-        message: 'CryptoPanic API rate limit reached. Please wait before trying again.',
-        retry_after_seconds: retryAfter
-      });
-    }
-
-    // Handle other non-200 responses
-    if (response.status !== 200) {
-      console.error('CryptoPanic returned status:', response.status);
-      console.error('Response data:', JSON.stringify(response.data));
-      return res.status(response.status).json({
-        error: 'CryptoPanic API error',
-        status: response.status,
-        details: response.data
-      });
-    }
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Vercel-Function/1.0)',
+      },
+      timeout: 15000, // 15 second timeout
+      maxRedirects: 0, // Don't follow redirects, use v2 directly
+    });
     
     console.log('CryptoPanic response status:', response.status);
     
@@ -162,6 +132,17 @@ export default async function handler(req, res) {
     if (error.response) {
       console.error('API Response Status:', error.response.status);
       console.error('API Response Data:', JSON.stringify(error.response.data));
+      
+      // Handle rate limiting specifically
+      if (error.response.status === 429) {
+        const retryAfter = error.response.headers['retry-after'] || 60;
+        return res.status(429).json({ 
+          error: 'Rate limit exceeded',
+          message: 'CryptoPanic API rate limit reached. Please wait before trying again.',
+          retry_after_seconds: retryAfter
+        });
+      }
+      
       return res.status(500).json({ 
         error: 'CryptoPanic API request failed',
         status: error.response.status,
