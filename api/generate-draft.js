@@ -46,6 +46,8 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Bad Request: Invalid payload.', details: e.message });
   }
 
+  console.log(`Processing news item ${newsItem.id}: ${newsItem.title}`);
+
   // --- 3. The Learning Loop: Fetch Historical Examples ---
   let learningContext = "None available yet. Use a standard expert crypto persona.";
   
@@ -65,6 +67,7 @@ export default async function handler(req, res) {
       learningContext = successfulPosts.map((p, index) => 
         `Successful Post ${index + 1} (Score: ${p.engagement_score}): "${p.final_approved_post}"`
       ).join('\n---\n');
+      console.log(`Found ${successfulPosts.length} successful posts for learning context`);
     }
   } catch (error) {
     console.error('Error fetching learning context:', error.message);
@@ -93,8 +96,10 @@ export default async function handler(req, res) {
   // --- 5. Call the Gemini API ---
   let geminiResult;
   try {
+    console.log('Calling Gemini 2.5 Pro API...');
+    
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro", // Use a powerful model for complex reasoning/emulation
+      model: "gemini-2.5-pro", // Using Pro for superior quality
       contents: fullPrompt,
       config: {
         responseMimeType: "application/json",
@@ -104,14 +109,31 @@ export default async function handler(req, res) {
     });
 
     geminiResult = JSON.parse(response.text.trim());
+    console.log('Gemini API call successful');
 
   } catch (e) {
     console.error('Gemini API Error:', e.message);
-    return res.status(500).json({ error: 'AI generation failed.', details: e.message });
+    
+    // Handle quota errors specifically
+    if (e.message && e.message.includes('429')) {
+      console.warn('Gemini API quota exceeded - will retry later');
+      return res.status(429).json({ 
+        error: 'Gemini API quota exceeded.',
+        details: 'Rate limit reached. This webhook will be retried automatically.',
+        retry_after: 60
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: 'AI generation failed.', 
+      details: e.message 
+    });
   }
 
   // --- 6. Store Draft Post to Supabase ---
   try {
+    console.log('Saving draft to database...');
+    
     const { error: insertError } = await supabase
       .from('draft_posts')
       .insert({
@@ -123,13 +145,19 @@ export default async function handler(req, res) {
 
     if (insertError) throw insertError;
 
+    console.log('Draft saved successfully');
+
     return res.status(200).json({ 
       message: 'AI Draft successfully generated and saved.', 
-      draft_id: newsItem.id 
+      draft_id: newsItem.id,
+      insight: geminiResult.insight
     });
 
   } catch (error) {
     console.error('Database insert error:', error.message);
-    return res.status(500).json({ error: 'Failed to save draft to Supabase.', details: error.message });
+    return res.status(500).json({ 
+      error: 'Failed to save draft to Supabase.', 
+      details: error.message 
+    });
   }
 }

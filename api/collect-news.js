@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // --- 1. Fetch Trending News from CryptoPanic ---
+    // --- 1. Fetch Trending News from CryptoPanic v2 API ---
     const apiUrl = `https://cryptopanic.com/api/developer/v2/posts/?auth_token=${CRYPTOPANIC_API_KEY}&kind=news&filter=hot&public=true`;
     
     console.log('Fetching from CryptoPanic v2 API...');
@@ -65,16 +65,14 @@ export default async function handler(req, res) {
     const existingCpIds = new Set(existingRecords.map(r => r.cp_id));
     console.log(`${existingCpIds.size} posts already exist in database`);
 
-    // Filter posts: must be new AND meet a minimum vote threshold
-    // LOWERED THRESHOLD: Now requires 3+ votes instead of 10
-    // This catches early trending news before it gets too popular
+    // Filter posts: must be new AND meet a minimum vote threshold (3+ votes)
     const newsToInsert = posts
       .filter(p => !existingCpIds.has(p.id))
       .filter(p => {
         // Safely access votes
         if (!p.votes || typeof p.votes !== 'object') {
           console.log(`Post ${p.id} has no votes object, including it anyway`);
-          return true; // Include posts without votes (they might be very new)
+          return true; // Include posts without votes
         }
         
         const totalVotes = (p.votes.positive || 0) + 
@@ -83,7 +81,6 @@ export default async function handler(req, res) {
                           (p.votes.saved || 0) + 
                           (p.votes.lol || 0);
         
-        // Lower threshold: 3+ votes (catches early trends)
         const meetsThreshold = totalVotes >= 3;
         
         if (!meetsThreshold) {
@@ -101,7 +98,12 @@ export default async function handler(req, res) {
         sentiment: p.sentiment || 'neutral',
       }));
 
-    if (newsToInsert.length === 0) {
+    // Remove duplicates within the same batch (in case CryptoPanic returns dupes)
+    const uniqueNewsToInsert = Array.from(
+      new Map(newsToInsert.map(item => [item.cp_id, item])).values()
+    );
+
+    if (uniqueNewsToInsert.length === 0) {
       console.log('All posts filtered out (duplicates or low votes)');
       return res.status(200).json({ 
         message: 'All fetched news was either processed or below the vote threshold.',
@@ -111,12 +113,16 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log(`Inserting ${newsToInsert.length} new posts`);
+    console.log(`Attempting to insert ${uniqueNewsToInsert.length} new posts`);
 
-    // --- 3. Bulk Insert into Supabase (Triggers the Gemini Function) ---
-    const { error: insertError } = await supabase
+    // --- 3. Upsert into Supabase with ON CONFLICT handling ---
+    // Using upsert with onConflict to gracefully handle any race conditions
+    const { data: insertedData, error: insertError } = await supabase
       .from('trending_news')
-      .insert(newsToInsert)
+      .upsert(uniqueNewsToInsert, { 
+        onConflict: 'cp_id',
+        ignoreDuplicates: true // Skip duplicates instead of throwing error
+      })
       .select(); 
 
     if (insertError) {
@@ -124,12 +130,14 @@ export default async function handler(req, res) {
       throw insertError;
     }
 
-    console.log('Successfully inserted posts');
+    const actualInsertCount = insertedData ? insertedData.length : 0;
+    console.log(`Successfully inserted ${actualInsertCount} posts`);
 
     return res.status(200).json({ 
       message: 'News collector ran successfully.', 
-      inserted_count: newsToInsert.length,
-      total_fetched: posts.length
+      inserted_count: actualInsertCount,
+      total_fetched: posts.length,
+      skipped_duplicates: uniqueNewsToInsert.length - actualInsertCount
     });
 
   } catch (error) {
