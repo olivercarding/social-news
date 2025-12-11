@@ -133,17 +133,24 @@ export default async function handler(req, res) {
   // --- 6. Store Draft Post to Supabase ---
   try {
     console.log('Saving draft to database...');
+    console.log('News item ID:', newsItem.id, 'Type:', typeof newsItem.id);
+    
+    // Ensure news_id is a valid UUID string
+    const newsIdToInsert = String(newsItem.id);
     
     const { error: insertError } = await supabase
       .from('draft_posts')
       .insert({
-        news_id: newsItem.id, // Link to the source news item
+        news_id: newsIdToInsert, // Link to the source news item (UUID)
         gemini_draft: geminiResult.draft_tweet,
         gemini_insight: geminiResult.insight,
         // All other columns default to null/false
       });
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error('Insert error details:', JSON.stringify(insertError));
+      throw insertError;
+    }
 
     console.log('Draft saved successfully');
 
