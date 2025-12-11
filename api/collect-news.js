@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { supabase } from '../utils/supabase';
+import { supabase } from '../utils/supabase.js';
 
 // Vercel Cron Jobs call this function with an HTTP GET request
 export default async function handler(req, res) {

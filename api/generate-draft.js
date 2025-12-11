@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { supabase } from '../utils/supabase';
+import { supabase } from '../utils/supabase.js';
 
 // Initialize Gemini client (uses GEMINI_API_KEY from Vercel ENV)
 const ai = new GoogleGenAI({});
