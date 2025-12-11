@@ -16,22 +16,61 @@ export default async function handler(req, res) {
 
   try {
     // --- 1. Fetch Trending News from CryptoPanic ---
-    // Using filter=hot and kind=news to get the most discussed articles
-    // Note: CryptoPanic's free tier uses auth_token, not auth
     const apiUrl = `https://cryptopanic.com/api/v1/posts/?auth_token=${CRYPTOPANIC_API_KEY}&kind=news&filter=hot&public=true`;
     
     console.log('Fetching from CryptoPanic...');
     
-    const response = await axios.get(apiUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Vercel-Function/1.0)',
-      },
-      timeout: 10000, // 10 second timeout
-    });
+    let response;
+    try {
+      response = await axios.get(apiUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Vercel-Function/1.0)',
+        },
+        timeout: 15000, // 15 second timeout
+        validateStatus: function (status) {
+          // Accept any status code so we can handle it ourselves
+          return status < 500;
+        }
+      });
+    } catch (axiosError) {
+      console.error('Axios request failed:', axiosError.message);
+      throw axiosError;
+    }
+
+    // Handle rate limiting specifically
+    if (response.status === 429) {
+      console.error('CryptoPanic rate limit hit (429)');
+      const retryAfter = response.headers['retry-after'] || 60;
+      return res.status(429).json({ 
+        error: 'Rate limit exceeded',
+        message: 'CryptoPanic API rate limit reached. Please wait before trying again.',
+        retry_after_seconds: retryAfter
+      });
+    }
+
+    // Handle other non-200 responses
+    if (response.status !== 200) {
+      console.error('CryptoPanic returned status:', response.status);
+      console.error('Response data:', JSON.stringify(response.data));
+      return res.status(response.status).json({
+        error: 'CryptoPanic API error',
+        status: response.status,
+        details: response.data
+      });
+    }
     
     console.log('CryptoPanic response status:', response.status);
     
-    const posts = response.data.results || [];
+    // Validate response structure
+    if (!response.data || !Array.isArray(response.data.results)) {
+      console.error('Invalid response structure from CryptoPanic:', response.data);
+      return res.status(500).json({
+        error: 'Invalid API response structure',
+        details: 'Expected an array of posts in results field'
+      });
+    }
+
+    const posts = response.data.results;
     
     if (posts.length === 0) {
       console.log('No posts found in response');
@@ -58,10 +97,17 @@ export default async function handler(req, res) {
     const existingCpIds = new Set(existingRecords.map(r => r.cp_id));
     console.log(`${existingCpIds.size} posts already exist in database`);
 
-    // Filter posts: must be new AND meet a minimum vote threshold (e.g., at least 10 total votes)
+    // Filter posts: must be new AND meet a minimum vote threshold
+    // Add robust null/undefined checks for votes object
     const newsToInsert = posts
       .filter(p => !existingCpIds.has(p.id))
       .filter(p => {
+        // Safely access votes - some posts might not have votes object
+        if (!p.votes || typeof p.votes !== 'object') {
+          console.log(`Post ${p.id} has no votes object, skipping`);
+          return false;
+        }
+        
         const totalVotes = (p.votes.positive || 0) + 
                           (p.votes.negative || 0) + 
                           (p.votes.important || 0) + 
@@ -71,12 +117,11 @@ export default async function handler(req, res) {
       })
       .map(p => ({
         cp_id: p.id,
-        title: p.title,
-        url: p.url,
-        source_name: p.source.title,
-        upvotes: p.votes.positive || 0,
+        title: p.title || 'Untitled',
+        url: p.url || '',
+        source_name: (p.source && p.source.title) ? p.source.title : 'Unknown',
+        upvotes: (p.votes && p.votes.positive) ? p.votes.positive : 0,
         sentiment: p.sentiment || 'neutral',
-        // Other fields like is_processed will default to FALSE in Postgres
       }));
 
     if (newsToInsert.length === 0) {
@@ -111,6 +156,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('Collector execution error:', error.message);
+    console.error('Error stack:', error.stack);
     
     // More detailed error for axios errors
     if (error.response) {
