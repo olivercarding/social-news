@@ -1,0 +1,10 @@
+{
+  "crons": [
+    {
+      "path": "/api/collect-news",
+      "schedule": "*/30 * * * *" 
+      /* Runs every 30 minutes. If on Vercel's Hobby plan, 
+         you may need to use "0 * * * *" (hourly). */
+    }
+  ]
+}
