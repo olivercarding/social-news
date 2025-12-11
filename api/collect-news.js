@@ -72,7 +72,7 @@ export default async function handler(req, res) {
         // Safely access votes
         if (!p.votes || typeof p.votes !== 'object') {
           console.log(`Post ${p.id} has no votes object, including it anyway`);
-          return true; // Include posts without votes
+          return true;
         }
         
         const totalVotes = (p.votes.positive || 0) + 
@@ -98,7 +98,7 @@ export default async function handler(req, res) {
         sentiment: p.sentiment || 'neutral',
       }));
 
-    // Remove duplicates within the same batch (in case CryptoPanic returns dupes)
+    // Remove duplicates within the same batch
     const uniqueNewsToInsert = Array.from(
       new Map(newsToInsert.map(item => [item.cp_id, item])).values()
     );
@@ -115,42 +115,76 @@ export default async function handler(req, res) {
 
     console.log(`Attempting to insert ${uniqueNewsToInsert.length} new posts`);
 
-    // --- 3. Insert into Supabase one-by-one to handle any race condition duplicates gracefully ---
+    // --- 3. Insert into Supabase and trigger draft generation ---
     let successCount = 0;
     let duplicateCount = 0;
+    let draftGenerationErrors = 0;
 
     for (const newsItem of uniqueNewsToInsert) {
       try {
-        const { data, error } = await supabase
+        // Insert the news item
+        const { data: insertedData, error: insertError } = await supabase
           .from('trending_news')
           .insert(newsItem)
-          .select();
+          .select()
+          .single();
 
-        if (error) {
+        if (insertError) {
           // Check if it's a duplicate key error
-          if (error.code === '23505' || error.message.includes('duplicate key')) {
+          if (insertError.code === '23505' || insertError.message.includes('duplicate key')) {
             console.log(`Duplicate detected for cp_id ${newsItem.cp_id}, skipping`);
             duplicateCount++;
+            continue;
           } else {
-            // Other error - log but continue
-            console.error(`Error inserting cp_id ${newsItem.cp_id}:`, error.message);
+            console.error(`Error inserting cp_id ${newsItem.cp_id}:`, insertError.message);
+            continue;
           }
-        } else {
-          console.log(`Successfully inserted cp_id ${newsItem.cp_id} - webhook should fire`);
-          successCount++;
         }
+
+        console.log(`Successfully inserted cp_id ${newsItem.cp_id}`);
+        successCount++;
+
+        // --- 4. Directly call generate-draft for this new item ---
+        try {
+          console.log(`Triggering draft generation for ${insertedData.id}...`);
+          
+          const draftResponse = await axios.post(
+            `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}/api/generate-draft`,
+            {
+              type: 'INSERT',
+              table: 'trending_news',
+              record: insertedData
+            },
+            {
+              headers: {
+                'Authorization': `Bearer ${process.env.WEBHOOK_SECRET_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 30000, // 30 second timeout for Gemini API
+            }
+          );
+
+          console.log(`Draft generated successfully for ${insertedData.id}`);
+        } catch (draftError) {
+          console.error(`Failed to generate draft for ${insertedData.id}:`, draftError.message);
+          draftGenerationErrors++;
+          // Continue processing other items even if draft generation fails
+        }
+
       } catch (err) {
-        console.error(`Exception inserting cp_id ${newsItem.cp_id}:`, err.message);
+        console.error(`Exception processing cp_id ${newsItem.cp_id}:`, err.message);
       }
     }
 
-    console.log(`Insert complete: ${successCount} successful, ${duplicateCount} duplicates`);
+    console.log(`Insert complete: ${successCount} successful, ${duplicateCount} duplicates, ${draftGenerationErrors} draft errors`);
 
     return res.status(200).json({ 
       message: 'News collector ran successfully.', 
       inserted_count: successCount,
       total_fetched: posts.length,
-      skipped_duplicates: duplicateCount
+      skipped_duplicates: duplicateCount,
+      drafts_generated: successCount - draftGenerationErrors,
+      draft_generation_errors: draftGenerationErrors
     });
 
   } catch (error) {
