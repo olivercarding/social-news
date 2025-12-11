@@ -16,7 +16,6 @@ export default async function handler(req, res) {
 
   try {
     // --- 1. Fetch Trending News from CryptoPanic ---
-    // IMPORTANT: Using API v2, not v1
     const apiUrl = `https://cryptopanic.com/api/developer/v2/posts/?auth_token=${CRYPTOPANIC_API_KEY}&kind=news&filter=hot&public=true`;
     
     console.log('Fetching from CryptoPanic v2 API...');
@@ -25,13 +24,12 @@ export default async function handler(req, res) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Vercel-Function/1.0)',
       },
-      timeout: 15000, // 15 second timeout
-      maxRedirects: 0, // Don't follow redirects, use v2 directly
+      timeout: 15000,
+      maxRedirects: 0,
     });
     
     console.log('CryptoPanic response status:', response.status);
     
-    // Validate response structure
     if (!response.data || !Array.isArray(response.data.results)) {
       console.error('Invalid response structure from CryptoPanic:', response.data);
       return res.status(500).json({
@@ -68,14 +66,15 @@ export default async function handler(req, res) {
     console.log(`${existingCpIds.size} posts already exist in database`);
 
     // Filter posts: must be new AND meet a minimum vote threshold
-    // Add robust null/undefined checks for votes object
+    // LOWERED THRESHOLD: Now requires 3+ votes instead of 10
+    // This catches early trending news before it gets too popular
     const newsToInsert = posts
       .filter(p => !existingCpIds.has(p.id))
       .filter(p => {
-        // Safely access votes - some posts might not have votes object
+        // Safely access votes
         if (!p.votes || typeof p.votes !== 'object') {
-          console.log(`Post ${p.id} has no votes object, skipping`);
-          return false;
+          console.log(`Post ${p.id} has no votes object, including it anyway`);
+          return true; // Include posts without votes (they might be very new)
         }
         
         const totalVotes = (p.votes.positive || 0) + 
@@ -83,7 +82,15 @@ export default async function handler(req, res) {
                           (p.votes.important || 0) + 
                           (p.votes.saved || 0) + 
                           (p.votes.lol || 0);
-        return totalVotes >= 10;
+        
+        // Lower threshold: 3+ votes (catches early trends)
+        const meetsThreshold = totalVotes >= 3;
+        
+        if (!meetsThreshold) {
+          console.log(`Post ${p.id} has only ${totalVotes} votes, skipping`);
+        }
+        
+        return meetsThreshold;
       })
       .map(p => ({
         cp_id: p.id,
@@ -99,7 +106,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ 
         message: 'All fetched news was either processed or below the vote threshold.',
         fetched: posts.length,
-        existing: existingCpIds.size
+        existing: existingCpIds.size,
+        threshold: '3+ votes'
       });
     }
 
@@ -128,12 +136,10 @@ export default async function handler(req, res) {
     console.error('Collector execution error:', error.message);
     console.error('Error stack:', error.stack);
     
-    // More detailed error for axios errors
     if (error.response) {
       console.error('API Response Status:', error.response.status);
       console.error('API Response Data:', JSON.stringify(error.response.data));
       
-      // Handle rate limiting specifically
       if (error.response.status === 429) {
         const retryAfter = error.response.headers['retry-after'] || 60;
         return res.status(429).json({ 
@@ -150,7 +156,6 @@ export default async function handler(req, res) {
       });
     }
     
-    // Respond with a more descriptive error for debugging
     return res.status(500).json({ 
       error: 'Failed to run news collector', 
       details: error.message 
