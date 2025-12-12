@@ -97,3 +97,42 @@ textarea {
 
 .btn-copy { background-color: var(--border); }
 .btn-approve { background-color: var(--success); }
+
+/* In public/style.css */
+
+/* Tab Styles */
+.tabs {
+    display: flex;
+    gap: 10px;
+    background: var(--card-bg);
+    padding: 5px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.tab-btn {
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 0.9rem;
+}
+
+.tab-btn.active {
+    background: var(--border);
+    color: white;
+}
+
+.tab-btn:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+/* History Card Styles */
+.card.history-card {
+    border-left: 4px solid var(--success);
+}
+
+.card.history-card textarea {
+    background-color: #0f1115; /* Slightly darker to indicate read-only feel */
+    border: 1px solid transparent;
+}

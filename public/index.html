@@ -10,8 +10,12 @@
 <body>
     <div class="container">
         <header>
-            <h1>📢 Social News Review</h1>
-            <button id="refresh-btn">Refresh Drafts</button>
+        <h1>📢 Social News Review</h1>
+            <div class="tabs">
+                <button id="tab-inbox" class="tab-btn active" onclick="switchTab('inbox')">Inbox</button>
+                <button id="tab-history" class="tab-btn" onclick="switchTab('history')">Approved History</button>
+            </div>
+            <button id="refresh-btn" class="icon-btn">🔄</button>
         </header>
 
         <div id="drafts-container" class="cards-grid">
