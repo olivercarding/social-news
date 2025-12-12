@@ -10,11 +10,11 @@ const responseSchema = {
   properties: {
     insight: {
       type: "string",
-      description: "A concise, single-sentence summary of why this matters to those interested in cryptocurrency (max 20 words).",
+      description: "The single, most critical implication of this news for institutional capital (max 10 words).",
     },
     draft_tweet: {
       type: "string",
-      description: "Professional analytical commentary, 2-3 sentences (150-250 characters), taking a clear position with data-driven context. No emojis, no hashtags, no hype language.",
+      description: "Professional analytical commentary, 2-3 sentences (150-250 characters). Must explain market driver and end with an actionable forward-looking implication.",
     }
   },
   required: ["insight", "draft_tweet"],
@@ -83,7 +83,6 @@ export default async function handler(req, res) {
     - Lead with implications, not just facts
     - Use specific numbers and concrete examples when available
     - Write 2-3 sentence analytical commentary, not soundbites
-    - Take a clear position: "This matters because..." or "The real story is..."
     - Compare to precedents or similar situations
     - Focus on what decision-makers need to know
     - Avoid AI tropes: no "exciting," "game-changing," or generic enthusiasm
@@ -98,13 +97,12 @@ export default async function handler(req, res) {
     CryptoPanic Sentiment: ${newsItem.sentiment || 'Neutral'}
     
     TASK:
-    1. Insight: One sentence summarizing why this matters to institutional players (max 20 words)
-    2. Draft_Tweet: 2-3 sentence professional commentary (150-280 characters) that:
-       - Provides analytical context, not just restating the headline
-       - Takes a clear position or highlights the key implication
-       - Uses specific data points if mentioned in the title
-       - Sounds like it was written by a human analyst, not AI
-       - NO emojis, NO hashtags, NO hype language
+    1. Insight: The single, most critical implication of this news for institutional capital (max 10 words).
+    2. Draft_Tweet: 2-3 sentence professional commentary (150-280 characters) that follows these rules:
+       - **Market Context:** You MUST explain *why* the market views this as important (e.g., "This invalidates the bear thesis for ETH," or "This creates a liquidity mismatch for miners").
+       - **Forward-Looking:** The final sentence MUST offer an **actionable implication** or prediction (e.g., "Expect volatility in Q4," or "Monitor on-chain flows for confirmation").
+       - **Tone:** Sounds like it was written by a senior human analyst.
+       - **Format:** NO emojis, NO hashtags, NO hype language.
        
     Example good style: "Corporate Bitcoin holdings doubled in 2025, but recent volatility exposes the cost of idle positions. Treasuries generating yield through regulated counterparties are handling market stress measurably better than passive holders. Income offsets cost basis erosion."
     
