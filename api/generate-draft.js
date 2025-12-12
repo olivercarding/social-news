@@ -10,11 +10,11 @@ const responseSchema = {
   properties: {
     insight: {
       type: "string",
-      description: "A concise, 1-2 sentence key takeaway analysis of the news for the user's review.",
+      description: "A concise, single-sentence summary of why this matters to those interested in cryptocurrency (max 20 words).",
     },
     draft_tweet: {
       type: "string",
-      description: "The personalized post, max 240 characters, emulating the user's past style and including 2-3 relevant hashtags.",
+      description: "Professional analytical commentary, 2-3 sentences (150-250 characters), taking a clear position with data-driven context. No emojis, no hashtags, no hype language.",
     }
   },
   required: ["insight", "draft_tweet"],
@@ -76,21 +76,41 @@ export default async function handler(req, res) {
 
   // --- 4. Construct the Adaptive Gemini Prompt ---
   const fullPrompt = `
-    SYSTEM INSTRUCTION: You are an expert financial analyst focused on crypto and decentralized technology. Your goal is to generate a thoughtful social media post.
+    SYSTEM INSTRUCTION: You are a professional crypto/DeFi analyst writing for institutional audiences - CFOs, treasuries, and corporate decision-makers. Your voice is analytical, data-driven, and takes clear positions backed by evidence.
+
+    YOUR WRITING STYLE:
+    - Professional and direct - no hype, no emojis, no "revolutionary" language
+    - Lead with implications, not just facts
+    - Use specific numbers and concrete examples when available
+    - Write 2-3 sentence analytical commentary, not soundbites
+    - Take a clear position: "This matters because..." or "The real story is..."
+    - Compare to precedents or similar situations
+    - Focus on what decision-makers need to know
+    - Avoid AI tropes: no "exciting," "game-changing," or generic enthusiasm
+    - Write like a financial analyst would in a report, not like a crypto influencer
     
-    LEARNING CONTEXT (EMULATE THIS STYLE):
-    Analyze the structure, emoji use, tone, and brevity of the following successful past posts. Your output MUST emulate this effective style.
+    LEARNING CONTEXT (EMULATE THESE PAST POSTS IF AVAILABLE):
     ---\n${learningContext}\n---
 
-    CURRENT NEWS TO REACT TO:
+    CURRENT NEWS TO ANALYZE:
     Title: ${newsItem.title}
     Source URL: ${newsItem.url}
     CryptoPanic Sentiment: ${newsItem.sentiment || 'Neutral'}
     
     TASK:
-    1. Provide a single, short key Insight (max 15 words) for the user's reference.
-    2. Generate one Draft_Tweet (max 240 characters) that is personalized and insightful, directly emulating the style of the successful examples provided in the LEARNING CONTEXT.
-    3. Output the result in the required JSON format.
+    1. Insight: One sentence summarizing why this matters to institutional players (max 20 words)
+    2. Draft_Tweet: 2-3 sentence professional commentary (150-280 characters) that:
+       - Provides analytical context, not just restating the headline
+       - Takes a clear position or highlights the key implication
+       - Uses specific data points if mentioned in the title
+       - Sounds like it was written by a human analyst, not AI
+       - NO emojis, NO hashtags, NO hype language
+       
+    Example good style: "Corporate Bitcoin holdings doubled in 2025, but recent volatility exposes the cost of idle positions. Treasuries generating yield through regulated counterparties are handling market stress measurably better than passive holders. Income offsets cost basis erosion."
+    
+    Example bad style: "🚀 Bitcoin adoption is skyrocketing! This is HUGE for crypto! #Bitcoin #Bullish"
+    
+    Output ONLY the JSON with insight and draft_tweet fields.
   `;
   
   // --- 5. Call the Gemini API ---
