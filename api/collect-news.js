@@ -83,11 +83,11 @@ export default async function handler(req, res) {
                           (p.votes.saved || 0) + 
                           (p.votes.lol || 0);
         
-        // UPDATED THRESHOLD: 20
-        const meetsThreshold = totalVotes >= 20;
+        // UPDATED THRESHOLD: 5
+        const meetsThreshold = totalVotes >= 5;
         
         if (!meetsThreshold) {
-          console.log(`Post ${p.id} has only ${totalVotes} votes, skipping (Threshold: 20)`);
+          console.log(`Post ${p.id} has only ${totalVotes} votes, skipping (Threshold: 5)`);
         }
         
         return meetsThreshold;
@@ -112,7 +112,7 @@ export default async function handler(req, res) {
         message: 'All fetched news was either processed or below the vote threshold.',
         fetched: posts.length,
         existing: existingCpIds.size,
-        threshold: '20+ votes'
+        threshold: '5+ votes'
       });
     }
 
