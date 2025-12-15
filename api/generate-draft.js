@@ -10,11 +10,11 @@ const responseSchema = {
   properties: {
     insight: {
       type: "string",
-      description: "The single, most critical implication of this news for institutional capital (max 10 words).",
+      description: "The hidden second-order effect or meta-narrative (max 10 words).",
     },
     draft_tweet: {
       type: "string",
-      description: "Professional analytical commentary, 2-3 sentences (150-250 characters). Must explain market driver and end with an actionable forward-looking implication.",
+      description: "Expert commentary, 2-3 sentences (150-250 characters). Must explain the 'so what' and take a stance.",
     }
   },
   required: ["insight", "draft_tweet"],
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
   console.log(`Processing news item ${newsItem.id}: ${newsItem.title}`);
 
   // --- 3. The Learning Loop: Fetch Historical Examples ---
-  let learningContext = "None available yet. Use a standard expert crypto persona.";
+  let learningContext = "None available yet.";
   
   try {
     // Query the 10 best-performing posts from the 'draft_posts' table
@@ -75,20 +75,26 @@ export default async function handler(req, res) {
   }
 
   // --- 4. Construct the Adaptive Gemini Prompt ---
+  
+  // Randomize the persona slightly to avoid robotic repetition
+  const personas = [
+    "A skeptical market veteran who has seen every cycle since 2016.",
+    "A deep-tech researcher focused on protocol utility and developer adoption.",
+    "A macro-focused investor looking at liquidity flows and market structure."
+  ];
+  const selectedPersona = personas[Math.floor(Math.random() * personas.length)];
+
   const fullPrompt = `
-    SYSTEM INSTRUCTION: You are a professional crypto/DeFi analyst writing for institutional audiences - CFOs, treasuries, and corporate decision-makers. Your voice is analytical, data-driven, and takes clear positions backed by evidence.
+    SYSTEM INSTRUCTION: You are ${selectedPersona} You don't just report news; you interpret it through the lens of market structure, narrative cycles, and second-order effects. You are not a corporate bot. You are a conviction-based thought leader.
 
     YOUR WRITING STYLE:
-    - Professional and direct - no hype, no emojis, no "revolutionary" language
-    - Lead with implications, not just facts
-    - Use specific numbers and concrete examples when available
-    - Write 2-3 sentence analytical commentary, not soundbites
-    - Compare to precedents or similar situations
-    - Focus on what decision-makers need to know
-    - Avoid AI tropes: no "exciting," "game-changing," or generic enthusiasm
-    - Write like a financial analyst would in a report, not like a crypto influencer
+    - **Authoritative & Opinionated:** Don't hedge. State clearly what this means for the industry.
+    - **High Signal:** Use industry-native terminology correctly (e.g., "liquidity fragmentation," "validator economics," "narrative rotation").
+    - **Connect the Dots:** Don't just summarize. Mention the hidden implication (e.g., "This acts as a vampire attack on Protocol X" or "This confirms the rotation out of L1s").
+    - **Tone:** Sophisticated, "insider" vibe. Not overly formal, but not sloppy.
+    - **Format:** 2-3 punchy sentences.
     
-    LEARNING CONTEXT (EMULATE THESE PAST POSTS IF AVAILABLE):
+    LEARNING CONTEXT (The user likes these past examples):
     ---\n${learningContext}\n---
 
     CURRENT NEWS TO ANALYZE:
@@ -97,17 +103,13 @@ export default async function handler(req, res) {
     CryptoPanic Sentiment: ${newsItem.sentiment || 'Neutral'}
     
     TASK:
-    1. Insight: The single, most critical implication of this news for institutional capital (max 10 words).
-    2. Draft_Tweet: 2-3 sentence professional commentary (150-280 characters) that follows these rules:
-       - **Market Context:** You MUST explain *why* the market views this as important (e.g., "This invalidates the bear thesis for ETH," or "This creates a liquidity mismatch for miners").
-       - **Forward-Looking:** The final sentence MUST offer an **actionable implication** or prediction (e.g., "Expect volatility in Q4," or "Monitor on-chain flows for confirmation").
-       - **Tone:** Sounds like it was written by a senior human analyst.
-       - **Format:** NO emojis, NO hashtags, NO hype language.
+    1. Insight: The hidden second-order effect of this news that most people miss (max 10 words).
+    2. Draft_Tweet: 2-3 sentence commentary (150-280 characters) that follows these rules:
+       - **The "So What":** Why does this actually matter? Is it a signal of a new trend or the death of an old one?
+       - **Unique Angle:** Take a stance. Avoid generic phrases like "Good news for adoption."
+       - **Actionable:** End with what to watch next (e.g., "Watch for flows into X," or "Expect competitors to fork this.").
+       - **NO** emojis, **NO** hashtags, **NO** "To the moon" hype.
        
-    Example good style: "Corporate Bitcoin holdings doubled in 2025, but recent volatility exposes the cost of idle positions. Treasuries generating yield through regulated counterparties are handling market stress measurably better than passive holders. Income offsets cost basis erosion."
-    
-    Example bad style: "🚀 Bitcoin adoption is skyrocketing! This is HUGE for crypto! #Bitcoin #Bullish"
-    
     Output ONLY the JSON with insight and draft_tweet fields.
   `;
   
@@ -117,12 +119,12 @@ export default async function handler(req, res) {
     console.log('Calling Gemini 2.5 Pro API...');
     
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-pro", // Using Pro for superior quality
+      model: "gemini-2.5-pro", 
       contents: fullPrompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,
-        temperature: 0.7, // Add some creativity
+        temperature: 0.8, // Increased slightly for more "opinion"
       },
     });
 
@@ -132,7 +134,6 @@ export default async function handler(req, res) {
   } catch (e) {
     console.error('Gemini API Error:', e.message);
     
-    // Handle quota errors specifically
     if (e.message && e.message.includes('429')) {
       console.warn('Gemini API quota exceeded - will retry later');
       return res.status(429).json({ 
@@ -151,7 +152,6 @@ export default async function handler(req, res) {
   // --- 6. Store Draft Post to Supabase ---
   try {
     console.log('Saving draft to database...');
-    console.log('News item ID:', newsItem.id, 'Type:', typeof newsItem.id);
     
     // Ensure news_id is a valid UUID string
     const newsIdToInsert = String(newsItem.id);
@@ -159,10 +159,9 @@ export default async function handler(req, res) {
     const { error: insertError } = await supabase
       .from('draft_posts')
       .insert({
-        news_id: newsIdToInsert, // Link to the source news item (UUID)
+        news_id: newsIdToInsert,
         gemini_draft: geminiResult.draft_tweet,
         gemini_insight: geminiResult.insight,
-        // All other columns default to null/false
       });
 
     if (insertError) {
